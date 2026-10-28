@@ -8,10 +8,13 @@ en la cola segura ``eventos_ui``.
 
 # 0. IMPORTS
 from collections import deque
+from array import array
 from itertools import count
 from queue import Empty, Queue
 from threading import Event, Lock, Semaphore, Thread
 from pathlib import Path
+import math
+import random
 import sys
 import time
 
@@ -70,6 +73,8 @@ POSICIONES_ETIQUETAS = {
     "Depósito": (1206, 570),
 }
 TAMANO_ETIQUETA_ACTOR = (320, 166)
+ANCHO_FRAME_TITULO = 540
+ANCHO_FRAME_INTRO = 1000
 POSICIONES_ESPERA_MENSAJES = {
     "Recepción": (680, 285),
     "Establos": (1050, 330),
@@ -83,12 +88,8 @@ DESTINOS_ESPERA_RECEPCION = [
 DESTINOS_ESTABLOS = [
     (973, 275), (1056, 288), (1139, 282), (998, 346), (1107, 352)
 ]
-PROGRESO_RECT = (338, 10, 860, 76)
 PANEL_ORDEN_RECT = (13, 230, 237, 314)
 PANEL_INFERIOR_RECT = (0, 850, ANCHO_BASE, 174)
-PANEL_ESPECIE_RECT = (19, 862, 435, 150)
-PANEL_BUZONES_RECT = (467, 862, 448, 150)
-PANEL_EVENTOS_RECT = (20, 862, 1496, 145)
 POSICION_CONFIRMACIONES = (650, 180)
 
 TAMANO_EDIFICIOS = {
@@ -113,6 +114,11 @@ TIEMPO_ENTRADA_ANIMAL = 0.4
 VELOCIDAD_ANIMALES = 90.0
 VELOCIDAD_SIMULACION = 1.0
 VELOCIDADES = {"Lento": 0.5, "Normal": 1.0, "Rápido": 2.0}
+FRECUENCIA_AUDIO = 22050
+VOLUMEN_AMBIENTE = 0.35
+VOLUMEN_BOTON = 0.28
+VOLUMEN_MENSAJE = 0.24
+VOLUMEN_ANIMALES = 0.22
 LUGARES_INICIALES = 10
 RACIONES_INICIALES = 10
 ANIMALES_TOTALES = 10
@@ -189,6 +195,101 @@ def cargar_fuentes():
             RUTA_FUENTE_BOLD, TAMANO_AVISO, True
         ),
     }
+
+
+def crear_sonido_tonos(duracion, frecuencias, volumen, fundido=0.08):
+    """Genera un efecto breve en memoria, sin depender de archivos externos."""
+    cantidad = max(1, int(FRECUENCIA_AUDIO * duracion))
+    muestras = array("h")
+    for indice in range(cantidad):
+        tiempo = indice / FRECUENCIA_AUDIO
+        entrada = min(1.0, tiempo / max(0.01, fundido))
+        salida = min(1.0, (duracion - tiempo) / max(0.01, fundido))
+        envolvente = max(0.0, min(entrada, salida))
+        onda = sum(
+            math.sin(2.0 * math.pi * frecuencia * tiempo)
+            for frecuencia in frecuencias
+        ) / len(frecuencias)
+        muestras.append(int(32767 * volumen * envolvente * onda))
+    return pygame.mixer.Sound(buffer=muestras.tobytes())
+
+
+def crear_ambiente_natural():
+    """Crea viento suave con cantos de pájaros ocasionales, sin tono continuo."""
+    duracion = 24.0
+    cantos = (
+        (3.2, 0.38, 880.0, 1260.0),
+        (8.8, 0.46, 1040.0, 1480.0),
+        (15.1, 0.34, 920.0, 1320.0),
+        (20.7, 0.50, 980.0, 1420.0),
+    )
+    generador = random.Random(2026)
+    cantidad = int(FRECUENCIA_AUDIO * duracion)
+    muestras = array("h")
+    viento = 0.0
+    hojas = 0.0
+    for indice in range(cantidad):
+        tiempo = indice / FRECUENCIA_AUDIO
+        ruido = generador.uniform(-1.0, 1.0)
+        viento = 0.998 * viento + 0.002 * ruido
+        hojas = 0.86 * hojas + 0.14 * ruido
+        onda = 0.8 * viento + 0.08 * hojas
+        for inicio, largo, frecuencia_a, frecuencia_b in cantos:
+            local = tiempo - inicio
+            if 0.0 <= local <= largo:
+                avance = local / largo
+                envolvente = math.sin(math.pi * avance) ** 2
+                fase = 2.0 * math.pi * (
+                    frecuencia_a * local
+                    + 0.5 * (frecuencia_b - frecuencia_a) * local * avance
+                )
+                trino = 0.65 + 0.35 * math.sin(2.0 * math.pi * 8.0 * local)
+                onda += 0.12 * envolvente * trino * math.sin(fase)
+        borde = math.sin(math.pi * tiempo / duracion) ** 0.5
+        muestras.append(int(32767 * borde * onda))
+    return pygame.mixer.Sound(buffer=muestras.tobytes())
+
+
+def cargar_sonidos():
+    """Prepara audio opcional; una falla del dispositivo no cierra la app."""
+    if pygame.mixer.get_init() is None:
+        print("[AUDIO] No hay un dispositivo de audio disponible.")
+        return None
+    try:
+        sonidos = {
+            "boton": crear_sonido_tonos(
+                0.09, (480.0, 720.0), VOLUMEN_BOTON, 0.025
+            ),
+            "mensaje": crear_sonido_tonos(
+                0.22, (760.0, 1010.0), VOLUMEN_MENSAJE, 0.045
+            ),
+            "animales": crear_sonido_tonos(
+                0.48, (392.0, 523.25, 659.25), VOLUMEN_ANIMALES, 0.09
+            ),
+            "ambiente": crear_ambiente_natural(),
+            "ultimos": {},
+        }
+        sonidos["ambiente"].set_volume(VOLUMEN_AMBIENTE)
+        return sonidos
+    except pygame.error as error:
+        print(f"[AUDIO] No se pudieron crear los sonidos: {error}")
+        return None
+
+
+def reproducir_sonido(sonidos, nombre, intervalo_minimo=0):
+    if sonidos is None or nombre not in sonidos:
+        return
+    ahora = pygame.time.get_ticks()
+    ultimo = sonidos["ultimos"].get(nombre, -intervalo_minimo)
+    if ahora - ultimo < intervalo_minimo:
+        return
+    sonidos["ultimos"][nombre] = ahora
+    sonidos[nombre].play()
+
+
+def iniciar_ambiente_natural(sonidos):
+    if sonidos is not None:
+        sonidos["ambiente"].play(loops=-1, fade_ms=1600)
 
 
 def cargar_imagen(
@@ -285,6 +386,20 @@ def cargar_assets(fuentes):
             fuentes["pequena"], nuevo_alto=ALTURA_BOTON
         )
         for accion, archivo in archivos_botones.items()
+    }
+    assets["frames"] = {
+        "area": cargar_imagen(
+            "small_frame.png", COLORES["panel"], "Área",
+            fuentes["pequena"], nuevo_ancho=TAMANO_ETIQUETA_ACTOR[0]
+        ),
+        "titulo": cargar_imagen(
+            "title_frame.png", COLORES["panel"], "Título",
+            fuentes["pequena"], nuevo_ancho=ANCHO_FRAME_TITULO
+        ),
+        "intro": cargar_imagen(
+            "title_frame.png", COLORES["panel"], "Título",
+            fuentes["pequena"], nuevo_ancho=ANCHO_FRAME_INTRO
+        ),
     }
     assets["recursos"] = {
         "comida": cargar_imagen(
@@ -1519,15 +1634,11 @@ def dibujar_buzones(superficie, sistema, vista, assets, fuentes):
         estado = actor.buzon.estado()
         vista_actor = vista["actores"][nombre]
         x, y = POSICIONES_ETIQUETAS[nombre]
-        ancho, alto = TAMANO_ETIQUETA_ACTOR
+        ancho = TAMANO_ETIQUETA_ACTOR[0]
         lleno = estado["espacios"] == 0
         color_borde = COLORES["rojo"] if lleno else COLORES["borde"]
-        panel = pygame.Surface((ancho, alto), pygame.SRCALPHA)
-        panel.fill((*COLORES["panel"], 218))
-        superficie.blit(panel, (x, y))
-        pygame.draw.rect(
-            superficie, color_borde, (x, y, ancho, alto), 2, 8
-        )
+        frame = assets["frames"]["area"]
+        superficie.blit(frame, (x, y))
 
         nombre_texto = nombre.upper()
         dibujar_texto(
@@ -1700,11 +1811,10 @@ def dibujar_orden_llegada(superficie, vista, assets, fuentes):
         )
 
 
-def dibujar_progreso(superficie, vista, fuentes):
-    x, y, ancho, alto = PROGRESO_RECT
-    panel = pygame.Surface((ancho, alto), pygame.SRCALPHA)
-    panel.fill((*COLORES["panel"], 220))
-    superficie.blit(panel, (x, y))
+def dibujar_progreso(superficie, vista, assets, fuentes):
+    frame = assets["frames"]["titulo"]
+    frame_rect = frame.get_rect(midtop=(ANCHO_BASE // 2, 0))
+    superficie.blit(frame, frame_rect)
     seguimiento = vista["seguimiento"][vista["seleccionada"]]
     paso_actual = seguimiento["paso"]
     nombre_paso = (
@@ -1720,14 +1830,17 @@ def dibujar_progreso(superficie, vista, fuentes):
     )
     superficie.blit(
         texto_encabezado,
-        texto_encabezado.get_rect(midtop=(x + ancho // 2, y + 7)),
+        texto_encabezado.get_rect(
+            midtop=(frame_rect.centerx, frame_rect.y + 28)
+        ),
     )
     descripcion = seguimiento["descripcion"] or "Esperando el inicio"
     frase = fuentes["normal"].render(
         descripcion, True, COLORES["texto"]
     )
     superficie.blit(
-        frase, frase.get_rect(midtop=(x + ancho // 2, y + 43))
+        frase,
+        frase.get_rect(midtop=(frame_rect.centerx, frame_rect.y + 67)),
     )
 
 
@@ -1747,31 +1860,23 @@ def texto_evento_compacto(texto):
 
 
 def dibujar_panel_inferior(superficie, vista, fuentes):
-    eventos_x, eventos_y = PANEL_EVENTOS_RECT[:2]
-    panel = pygame.Surface(
-        (PANEL_EVENTOS_RECT[2], PANEL_EVENTOS_RECT[3]), pygame.SRCALPHA
-    )
-    panel.fill((*COLORES["panel"], 220))
-    superficie.blit(panel, (eventos_x, eventos_y))
-    pygame.draw.rect(
-        superficie, COLORES["panel_claro"],
-        PANEL_EVENTOS_RECT, 1, border_radius=7
-    )
+    eventos_x, eventos_y = 50, 832
+    ancho_eventos = ANCHO_BASE - 40
     dibujar_texto(
         superficie, "ÚLTIMOS EVENTOS", fuentes["titulo"],
-        COLORES["amarillo"], (eventos_x + 16, eventos_y + 8)
+        COLORES["amarillo"], (eventos_x, eventos_y + 10)
     )
     eventos = list(vista["eventos"])[:6]
-    ancho_columna = (PANEL_EVENTOS_RECT[2] - 48) // 2
+    ancho_columna = (ancho_eventos - 56) // 2
     for indice, evento in enumerate(eventos):
         columna = indice // 3
         fila = indice % 3
         dibujar_texto(
             superficie, texto_evento_compacto(evento),
-            fuentes["pequena"], COLORES["texto_suave"],
+            fuentes["normal"], COLORES["texto_suave"],
             (
-                eventos_x + 16 + columna * (ancho_columna + 16),
-                eventos_y + 41 + fila * 33,
+                eventos_x + columna * (ancho_columna + 16),
+                eventos_y + 40 + fila * 36,
             ),
             ancho_columna - 10,
         )
@@ -2050,12 +2155,26 @@ def aplicar_evento_ui(evento, vista):
         )
 
 
-def procesar_eventos_ui(sistema, vista):
+def reproducir_audio_evento_ui(evento, sonidos):
+    if evento["tipo"] == "mensaje_entregado":
+        reproducir_sonido(sonidos, "mensaje", 120)
+        return
+    es_llegada = (
+        evento["tipo"] == "progreso"
+        and evento["paso"] == 1
+        and evento["cambios"].get("estado") == "Entrando al Arca"
+    )
+    if es_llegada:
+        reproducir_sonido(sonidos, "animales", 500)
+
+
+def procesar_eventos_ui(sistema, vista, sonidos=None):
     while True:
         try:
             evento = sistema.eventos_ui.get_nowait()
         except Empty:
             break
+        reproducir_audio_evento_ui(evento, sonidos)
         aplicar_evento_ui(evento, vista)
 
 
@@ -2237,7 +2356,7 @@ def dibujar_escena(
     dibujar_mensajes_esperando(pantalla, vista, assets, fuentes)
     dibujar_confirmaciones(pantalla, vista, fuentes)
     dibujar_buzones(pantalla, sistema, vista, assets, fuentes)
-    dibujar_progreso(pantalla, vista, fuentes)
+    dibujar_progreso(pantalla, vista, assets, fuentes)
     dibujar_panel_inferior(pantalla, vista, fuentes)
     dibujar_aviso_temporal(pantalla, vista, fuentes)
     return dibujar_botones(pantalla, assets, mouse_logico)
@@ -2266,12 +2385,17 @@ def dibujar_intro(pantalla, assets, fuentes, transcurrido):
     titulo_base = fuentes["intro"].render(
         "EL ARCA CONCURRENTE", True, COLORES["amarillo"]
     )
+    frame_base = assets["frames"]["intro"]
+    ancho_frame = max(1, int(frame_base.get_width() * escala))
+    frame = escalar_por_ancho(frame_base, ancho_frame)
+    frame.set_alpha(alpha_titulo)
+    centro = (ANCHO_VENTANA // 2, ALTO_VENTANA // 2)
+    pantalla.blit(frame, frame.get_rect(center=centro))
+
     ancho = max(1, int(titulo_base.get_width() * escala))
     titulo = escalar_por_ancho(titulo_base, ancho)
     titulo.set_alpha(alpha_titulo)
-    pantalla.blit(
-        titulo, titulo.get_rect(center=(ANCHO_VENTANA // 2, ALTO_VENTANA // 2))
-    )
+    pantalla.blit(titulo, titulo.get_rect(center=centro))
     return transcurrido >= 3.0
 
 
@@ -2298,6 +2422,7 @@ def manejar_evento_simulacion(
     botones,
     sistemas_cerrando,
     tamano_ventana,
+    sonidos,
 ):
     posicion_logica = None
     if evento.type == pygame.MOUSEBUTTONDOWN:
@@ -2305,6 +2430,8 @@ def manejar_evento_simulacion(
     accion = obtener_accion_control(
         evento, botones, vista["rects_especies"], posicion_logica
     )
+    if accion is not None and evento.type == pygame.MOUSEBUTTONDOWN:
+        reproducir_sonido(sonidos, "boton", 45)
     if accion and accion.startswith("seleccionar:"):
         vista["seleccionada"] = accion.split(":", 1)[1]
         vista["seleccion_manual"] = True
@@ -2371,6 +2498,7 @@ def main():
         ejecutar_prueba_automatica()
         return
 
+    pygame.mixer.pre_init(FRECUENCIA_AUDIO, -16, 1, 512)
     pygame.init()
     tamano_ventana = calcular_tamano_inicial()
     pantalla = pygame.display.set_mode(tamano_ventana, pygame.RESIZABLE)
@@ -2379,6 +2507,8 @@ def main():
     reloj = pygame.time.Clock()
     fuentes = cargar_fuentes()
     assets = cargar_assets(fuentes)
+    sonidos = cargar_sonidos()
+    iniciar_ambiente_natural(sonidos)
 
     sistema = SistemaActores()
     sistemas_cerrando = []
@@ -2412,6 +2542,7 @@ def main():
                     botones,
                     sistemas_cerrando,
                     tamano_ventana,
+                    sonidos,
                 )
 
         if not ejecutando:
@@ -2429,7 +2560,7 @@ def main():
             reloj.tick(FPS)
             continue
 
-        procesar_eventos_ui(sistema, vista)
+        procesar_eventos_ui(sistema, vista, sonidos)
         sistemas_cerrando = [
             anterior for anterior in sistemas_cerrando
             if not anterior.termino()
