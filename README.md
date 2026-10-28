@@ -60,6 +60,6 @@ nunca se mantiene durante el tiempo de procesamiento.
 
 ## Fuentes
 
-Las fuentes opcionales se buscan en `assets/fonts/`. Si los archivos Cinzel y
-Alegreya no están presentes, la aplicación utiliza automáticamente fuentes del
-sistema.
+La interfaz usa Titillium Web y el título de la introducción usa Jost ExtraBold.
+Los archivos se incluyen en `assets/fonts/`; si falta alguno, la aplicación
+utiliza automáticamente Arial o una fuente sans-serif del sistema.

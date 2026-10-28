@@ -1,10 +1,11 @@
-# Fuentes opcionales
+# Fuentes locales
 
-Colocar en esta carpeta:
+La interfaz utiliza los siguientes archivos incluidos en esta carpeta:
 
-- `CinzelDecorative-Bold.ttf`
-- `Cinzel-SemiBold.ttf`
-- `Alegreya-Regular.ttf`
-- `Alegreya-Bold.ttf`
+- `TitilliumWeb-Regular.ttf`
+- `TitilliumWeb-SemiBold.ttf`
+- `TitilliumWeb-Bold.ttf`
+- `Jost-ExtraBold.ttf`
 
-Si no están disponibles, la aplicación utiliza fuentes del sistema.
+Si falta alguno, la aplicación utiliza Arial o una fuente sans-serif del
+sistema como respaldo.

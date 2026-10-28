@@ -29,10 +29,10 @@ FPS = 60
 CARPETA_PROYECTO = Path(__file__).resolve().parent
 CARPETA_IMAGENES = CARPETA_PROYECTO / "img"
 
-RUTA_FUENTE_INTRO = "assets/fonts/CinzelDecorative-Bold.ttf"
-RUTA_FUENTE_TITULOS = "assets/fonts/Cinzel-SemiBold.ttf"
-RUTA_FUENTE_TEXTO = "assets/fonts/Alegreya-Regular.ttf"
-RUTA_FUENTE_TEXTO_NEGRITA = "assets/fonts/Alegreya-Bold.ttf"
+RUTA_FUENTE_TEXTO = "assets/fonts/TitilliumWeb-Regular.ttf"
+RUTA_FUENTE_SEMIBOLD = "assets/fonts/TitilliumWeb-SemiBold.ttf"
+RUTA_FUENTE_BOLD = "assets/fonts/TitilliumWeb-Bold.ttf"
+RUTA_FUENTE_TITULO = "assets/fonts/Jost-ExtraBold.ttf"
 
 COLORES = {
     "fondo": (101, 151, 91),
@@ -48,10 +48,12 @@ COLORES = {
     "animacion": (255, 236, 130),
 }
 
-TAMANO_FUENTE = 20
-TAMANO_FUENTE_PEQUENA = 15
-TAMANO_FUENTE_TITULO = 27
-TAMANO_FUENTE_INTRO = 72
+TAMANO_TITULO_INTRO = 68
+TAMANO_TITULO_ACTOR = 22
+TAMANO_SUBTITULO = 18
+TAMANO_TEXTO = 16
+TAMANO_TEXTO_PEQUENO = 14
+TAMANO_AVISO = 17
 
 # Posiciones editables del mapa. Ninguna función de dibujo fija por su cuenta
 # dónde debe aparecer un edificio.
@@ -149,38 +151,42 @@ def escalar_por_alto(imagen, nuevo_alto):
     return pygame.transform.smoothscale(imagen, (nuevo_ancho, nuevo_alto))
 
 
-def cargar_fuente(ruta_relativa, tamano, alternativa, negrita=False):
-    ruta = CARPETA_PROYECTO / ruta_relativa
+def cargar_fuente(ruta, tamano, negrita=False):
+    """Carga una fuente local o usa Arial/sans-serif como respaldo."""
+    ruta = CARPETA_PROYECTO / ruta
     if ruta.is_file():
         try:
             return pygame.font.Font(str(ruta), tamano)
         except pygame.error as error:
             print(f"[FUENTE] No se pudo cargar {ruta.name}: {error}")
-    return pygame.font.SysFont(alternativa, tamano, bold=negrita)
+    return pygame.font.SysFont("arial,sans-serif", tamano, bold=negrita)
 
 
 def cargar_fuentes():
     return {
         "intro": cargar_fuente(
-            RUTA_FUENTE_INTRO, TAMANO_FUENTE_INTRO, "georgia", True
+            RUTA_FUENTE_TITULO, TAMANO_TITULO_INTRO, True
         ),
         "titulo": cargar_fuente(
-            RUTA_FUENTE_TITULOS, TAMANO_FUENTE_TITULO, "georgia", True
+            RUTA_FUENTE_BOLD, TAMANO_TITULO_ACTOR, True
         ),
         "normal": cargar_fuente(
-            RUTA_FUENTE_TEXTO, TAMANO_FUENTE, "segoeui"
+            RUTA_FUENTE_TEXTO, TAMANO_TEXTO
         ),
         "negrita": cargar_fuente(
-            RUTA_FUENTE_TEXTO_NEGRITA, TAMANO_FUENTE, "segoeui", True
+            RUTA_FUENTE_BOLD, TAMANO_SUBTITULO, True
+        ),
+        "semibold": cargar_fuente(
+            RUTA_FUENTE_SEMIBOLD, TAMANO_SUBTITULO, True
         ),
         "pequena": cargar_fuente(
-            RUTA_FUENTE_TEXTO, TAMANO_FUENTE_PEQUENA, "segoeui"
+            RUTA_FUENTE_TEXTO, TAMANO_TEXTO_PEQUENO
         ),
         "pequena_negrita": cargar_fuente(
-            RUTA_FUENTE_TEXTO_NEGRITA,
-            TAMANO_FUENTE_PEQUENA,
-            "segoeui",
-            True,
+            RUTA_FUENTE_SEMIBOLD, TAMANO_TEXTO_PEQUENO, True
+        ),
+        "aviso": cargar_fuente(
+            RUTA_FUENTE_BOLD, TAMANO_AVISO, True
         ),
     }
 
@@ -1090,7 +1096,12 @@ class SistemaActores:
         self._vaciar_permisos_paso()
         self.en_ejecucion.set()
         self.publicar_ui(
-            {"tipo": "velocidad", "velocidad": velocidad, "modo_paso": False}
+            {
+                "tipo": "velocidad",
+                "velocidad": velocidad,
+                "modo_paso": False,
+                "aviso": f"Velocidad: {velocidad:g}x",
+            }
         )
         self.registrar_evento(f"[VELOCIDAD] {velocidad:g}x")
 
@@ -1108,18 +1119,21 @@ class SistemaActores:
 
     def avanzar_paso(self):
         """Habilita un único acontecimiento importante, no un fotograma."""
-        if not self.modo_paso.is_set():
+        activando = not self.modo_paso.is_set()
+        if activando:
             self._vaciar_permisos_paso()
         self.modo_paso.set()
         self.en_ejecucion.set()
         self._permisos_paso.release()
-        self.publicar_ui(
-            {
-                "tipo": "velocidad",
-                "velocidad": self.obtener_velocidad(),
-                "modo_paso": True,
-            }
-        )
+        if activando:
+            self.publicar_ui(
+                {
+                    "tipo": "velocidad",
+                    "velocidad": self.obtener_velocidad(),
+                    "modo_paso": True,
+                    "aviso": "Modo paso a paso activado",
+                }
+            )
 
     def _vaciar_permisos_paso(self):
         hay_permiso = self._permisos_paso.acquire(blocking=False)
@@ -1406,7 +1420,7 @@ def dibujar_animales(superficie, animales, fuentes):
         superficie.blit(animal.imagenes[0], (round(x), round(y)))
         superficie.blit(animal.imagenes[1], (round(x + 40), round(y + 7)))
         texto = f"{animal.especie} · {animal.estado}"
-        etiqueta = fuentes["pequena"].render(
+        etiqueta = fuentes["pequena_negrita"].render(
             texto, True, COLORES["texto"]
         )
         fondo = etiqueta.get_rect(midtop=(round(x + 55), round(y + 65)))
@@ -1619,8 +1633,8 @@ def dibujar_mensajes_esperando(superficie, vista, assets, fuentes):
             assets["mensaje"],
             assets["mensaje"].get_rect(center=(x, y)),
         )
-        texto = fuentes["pequena_negrita"].render(
-            "Esperando espacio", True, COLORES["rojo"]
+        texto = fuentes["aviso"].render(
+            "ESPERANDO ESPACIO", True, COLORES["rojo"]
         )
         fondo = texto.get_rect(midleft=(x + 25, y))
         panel = fondo.inflate(8, 5)
@@ -1747,27 +1761,23 @@ def dibujar_panel_inferior(superficie, vista, fuentes):
         superficie, "ÚLTIMOS EVENTOS", fuentes["titulo"],
         COLORES["amarillo"], (eventos_x + 16, eventos_y + 8)
     )
-    eventos = list(vista["eventos"])[:8]
+    eventos = list(vista["eventos"])[:6]
     ancho_columna = (PANEL_EVENTOS_RECT[2] - 48) // 2
     for indice, evento in enumerate(eventos):
-        columna = indice // 4
-        fila = indice % 4
-        evento = acortar_texto(
-            texto_evento_compacto(evento),
-            fuentes["pequena"],
-            ancho_columna - 10,
-        )
+        columna = indice // 3
+        fila = indice % 3
         dibujar_texto(
-            superficie, evento,
+            superficie, texto_evento_compacto(evento),
             fuentes["pequena"], COLORES["texto_suave"],
             (
                 eventos_x + 16 + columna * (ancho_columna + 16),
-                eventos_y + 47 + fila * 23,
-            )
+                eventos_y + 41 + fila * 33,
+            ),
+            ancho_columna - 10,
         )
 
 
-def dibujar_botones(superficie, assets, vista, fuentes, mouse_logico):
+def dibujar_botones(superficie, assets, mouse_logico):
     botones = {}
     orden = [
         "iniciar", "paso", "pausar", "reiniciar",
@@ -1787,27 +1797,24 @@ def dibujar_botones(superficie, assets, vista, fuentes, mouse_logico):
                 superficie, COLORES["amarillo"], rect, 2, 6
             )
         x = rect.right + ESPACIO_ENTRE_BOTONES
-
-    modo = "MODO PASO A PASO" if vista["modo_paso"] else "MODO AUTOMÁTICO"
-    dibujar_texto(
-        superficie,
-        f"Velocidad: {vista['velocidad']:g}x · {modo}",
-        fuentes["pequena_negrita"], COLORES["texto"],
-        (CONTROLES_CENTRO_X - 125, CONTROLES_Y - 35)
-    )
-    if vista["modo_paso"]:
-        texto = fuentes["pequena_negrita"].render(
-            "Presioná el botón para continuar.",
-            True,
-            COLORES["amarillo"],
-        )
-        superficie.blit(
-            texto,
-            texto.get_rect(
-                midtop=(CONTROLES_CENTRO_X, CONTROLES_Y - 17)
-            ),
-        )
     return botones
+
+
+def dibujar_aviso_temporal(superficie, vista, fuentes):
+    aviso = vista["aviso_temporal"]
+    if aviso is None:
+        return
+    texto = fuentes["aviso"].render(
+        aviso["texto"], True, COLORES["amarillo"]
+    )
+    rect = texto.get_rect(
+        midbottom=(CONTROLES_CENTRO_X, CONTROLES_Y - 8)
+    )
+    fondo = rect.inflate(20, 10)
+    panel = pygame.Surface((fondo.width, fondo.height), pygame.SRCALPHA)
+    panel.fill((*COLORES["panel"], 225))
+    superficie.blit(panel, fondo)
+    superficie.blit(texto, rect)
 
 
 def actualizar_animales(animales, delta_simulacion):
@@ -1937,6 +1944,7 @@ def crear_vista_inicial(assets):
         "destellos_buzon": dict.fromkeys(POSICIONES_ACTORES, 0.0),
         "velocidad": VELOCIDAD_SIMULACION,
         "modo_paso": False,
+        "aviso_temporal": None,
         "seguimiento": {
             datos["nombre"]: {
                 "orden": indice + 1,
@@ -1974,6 +1982,15 @@ def aplicar_progreso_ui(evento, vista):
             vista["seleccionada"] = especie
 
 
+def aplicar_aviso_temporal(evento, vista):
+    aviso = evento.get("aviso")
+    if aviso:
+        vista["aviso_temporal"] = {
+            "texto": aviso,
+            "restante": 1.0,
+        }
+
+
 def aplicar_evento_ui(evento, vista):
     tipo = evento["tipo"]
     if tipo == "log":
@@ -2006,6 +2023,7 @@ def aplicar_evento_ui(evento, vista):
     elif tipo == "velocidad":
         vista["velocidad"] = evento["velocidad"]
         vista["modo_paso"] = evento["modo_paso"]
+        aplicar_aviso_temporal(evento, vista)
     elif tipo == "progreso":
         aplicar_progreso_ui(evento, vista)
     elif tipo == "inicio_proceso":
@@ -2197,6 +2215,10 @@ def actualizar_vista_visual(sistema, vista, delta_real):
         confirmacion for confirmacion in vista["confirmaciones"]
         if confirmacion["restante"] > 0
     ]
+    if vista["aviso_temporal"] is not None:
+        vista["aviso_temporal"]["restante"] -= delta_real
+        if vista["aviso_temporal"]["restante"] <= 0:
+            vista["aviso_temporal"] = None
 
 
 def dibujar_escena(
@@ -2217,9 +2239,8 @@ def dibujar_escena(
     dibujar_buzones(pantalla, sistema, vista, assets, fuentes)
     dibujar_progreso(pantalla, vista, fuentes)
     dibujar_panel_inferior(pantalla, vista, fuentes)
-    return dibujar_botones(
-        pantalla, assets, vista, fuentes, mouse_logico
-    )
+    dibujar_aviso_temporal(pantalla, vista, fuentes)
+    return dibujar_botones(pantalla, assets, mouse_logico)
 
 
 def dibujar_intro(pantalla, assets, fuentes, transcurrido):
